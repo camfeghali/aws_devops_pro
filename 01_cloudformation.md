@@ -178,3 +178,218 @@ The stack set feature gains permissions to deploy to other accounts using either
 - Retain Stack: Defines whether a stack should be retained when a stack set is deleted.
 
 ![cfn stack-set architecture](./assets/01_cloudformation/cfn-stack_set.png)
+
+### DeletionPolicy
+
+`DeletionPolicy` is a property that defines what to do with a resource when its logical resource is removed from the template, or when the stack is delete.
+It is `Delete` by default, but can be set to `Retain`, or `Snapshot` if that resource supports it (RDS, EBS Volume, ElastiCache, RedShift).
+It only applies to deletion operation, and not to operations that cause a replacement of a resource.
+
+### Stack Roles
+By default, Cloudformation uses the permissions of the identity who is creating the stack to create resources.
+
+Sometimes you want to allow some users to create stacks, and others to only update / support them, essentially giving different permissions to different groups of users.
+
+The **Stack Role** feature allows cloudformation to assume a role, and do the necessary operations that that role permits.
+
+Given two IAM users userA (admin) and userB with less permission, the admin creates a role that can be passed to cloudformation by userB, but **NOT** assumed by userB. userB only needs to be able to create, update, delete stacks, and to **pass that role**. That role can create, update delete resources. This would allow userB to **only** provision resources via cloudformation, and no other way.
+
+![cfn stack-set architecture](./assets/01_cloudformation/cfn-pass_role.png)
+
+### CFN Init
+
+It comes with a `cfn-init` utility installed on EC2 instances, similar to `cfn-signal`.
+It's a simple configuration management system. It's essentially an alternative to the `UserData` property in EC2 instances.
+It is a declarative approach to instance configuration as opposed to the `UserData` approach.
+Configuration directives are stored in the template under the `AWS::CloudFormation::Init` part of the logical resource.
+It is **idempotent** and can run on many flavors of Linux, and sometimes windows instances.
+**The configuration directives defined in the `AWS::CloudFormation::Init` property are in the resource metadata**
+
+The directives are defined in the template, and the `cfn-init` tool is directed to execute them on the instance from the `UserData` property.
+
+Each directive can have one or multiple of the following blocks: 
+
+- packages: Install software packages.
+- groups: Create/manage user groups.
+- users: Create/manage users and assign them to groups.
+- sources: Download and extract files from URLs.
+- files: Create or modify files.
+- commands: Execute arbitrary shell commands.
+- services: Manage services (e.g., start, stop, enable, restart).
+- volumes: Format and mount block storage devices.
+- mounts: Mount filesystems.
+- metadata_options: Configure instance metadata options.
+- sysctl: Set kernel parameters.
+
+Ex:
+```
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation Init example for EC2 instance setup
+
+Resources:
+  MyEC2Instance:
+    Type: AWS::EC2::Instance
+    Metadata:
+      AWS::CloudFormation::Init:  # Define the directives
+        configSets:
+          default:
+            - install_packages
+            - configure_httpd
+        install_packages:
+          packages:
+            yum:
+              httpd: []  # Install Apache HTTP server
+        configure_httpd:
+          files:
+            /var/www/html/index.html:
+              content: |
+                <html>
+                <head><title>Welcome to My EC2 Instance!</title></head>
+                <body>
+                  <h1>Hello from CloudFormation Init!</h1>
+                </body>
+                </html>
+              mode: '000644'
+              owner: root
+              group: root
+          services:
+            sysvinit:
+              httpd:
+                enabled: true
+                ensureRunning: true
+    Properties:
+      InstanceType: t2.micro
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          # Install CloudFormation helper scripts
+          yum install -y aws-cfn-bootstrap
+
+          # Run cfn-init to apply the CloudFormation init configurations (run the directives)
+          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} \
+            --resource MyEC2Instance \
+            --configsets default \
+            --region ${AWS::Region}
+
+          # Signal to CloudFormation that the instance setup is complete
+          /opt/aws/bin/cfn-signal --exit-code $? \
+            --stack ${AWS::StackName} \
+            --resource MyEC2Instance \
+            --region ${AWS::Region}
+```
+
+### CFN Hup
+
+`cfn-hup` is a utility that runs as a daemon on a resource which allows you to detect changes in a resource's metadata, and run configurable actions. It basically allows you to rerun `cfn-init` after it is first ran via the `UserData` script (`UserData` only runs once at resource creation time). **The configuration directives defined in the `AWS::CloudFormation::Init` property are in the resource metadata**
+
+Ex:
+```
+Resources:
+  MyEC2Instance:
+    Type: AWS::EC2::Instance
+    Metadata:
+      AWS::CloudFormation::Init:
+        configSets:
+          default:
+            - install_packages
+            - configure_httpd
+        install_packages:
+          packages:
+            yum:
+              httpd: []  # Install Apache HTTP server
+        configure_httpd:
+          files:
+            /var/www/html/index.html:
+              content: |
+                <html>
+                <head><title>My Web App</title></head>
+                <body>
+                  <h1>Hello from CloudFormation Init!</h1>
+                  <p>Updated at: ${Timestamp}</p>
+                </body>
+                </html>
+              mode: '000644'
+              owner: root
+              group: root
+          services:
+            sysvinit:
+              httpd:
+                enabled: true
+                ensureRunning: true
+    Properties:
+      InstanceType: t2.micro
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          # Install CloudFormation helper scripts
+          yum install -y aws-cfn-bootstrap
+
+          # Run cfn-init to apply the initial CloudFormation Init metadata
+          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} \
+            --resource MyEC2Instance \
+            --configsets default \
+            --region ${AWS::Region}
+
+          # Start cfn-hup to monitor for changes
+          /opt/aws/bin/cfn-hup
+
+          # Signal to CloudFormation that the instance setup is complete
+          /opt/aws/bin/cfn-signal --exit-code $? \
+            --stack ${AWS::StackName} \
+            --resource MyEC2Instance \
+            --region ${AWS::Region}
+```
+
+### CFN Changesets
+Allow you to preview changes before accepting/denying them and then applying them.
+
+### CFN Custom Resources
+Custom resources are used to do things that Cloudformation doesn't/can't do out of the box.
+
+Examples include:
+- Empty a S3 bucket or ECR on deletion.
+- Populate a S3 bucket when it gets created.
+- Request info from external resource when provisioning a resource (ex: calling a 3rd party API).
+
+The custom resource is a logical resource that can be a Lambda function or a SNS topic which gets passed data of your chocice.
+Data generated can be passed back to Cloudformation and used in the provisioning of other resources.
+
+The custom resource gets associated to a logical resource, and is executed after the logical resource is provisioned, and before it is deleted. That's the case because of the graph dependency structure that Cloudformation creates, which implicitly sets up dependency between resources when they are referenc'ed/ing resources in the stack.
+
+Ex: Here the `Custom::S3Objects` custom logical resource is dependent on the `animalpics` resource because it references in its `Bucket` property.
+
+```
+Resources:
+  animalpics:
+    Type: AWS::S3::Bucket
+  copyanimalpics:
+    Type: "Custom::S3Objects"
+    Properties:
+      ServiceToken: !GetAtt CopyS3ObjectsFunction.Arn
+      SourceBucket: "cl-randomstuffforlessons"
+      SourcePrefix: "customresource"
+      Bucket: !Ref animalpics
+  CopyS3ObjectsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        ZipFile: |
+        # Do some lambda stuff depending on the event that's received.
+
+        if event['RequestType'] == 'Create' or event['RequestType'] == 'Update':
+          result = copy_objects(source_bucket, source_prefix, bucket, prefix)
+        elif event['RequestType'] == 'Delete':
+          result = delete_objects(bucket, prefix)
+```
+
+### Drift Detection
+Occurs when a resource is provisioned with Cloudformation, but updated via another method (console or CLI).
+This can block updates/deletes when triggered from Cloudformation in the future.
+
+#### To fix a drift
+We can run `detect drift` via the CLI, API, or Console UI.
+
+- Add a deletion policy `retain` to the template and run an **update**.
+- Remove the resource from the template, and run **update**.
+- Import the resource into the stack with the same config as it currently has.
+- Remove the deletion policy, and run **update** again.
