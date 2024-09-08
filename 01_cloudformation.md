@@ -209,17 +209,17 @@ The directives are defined in the template, and the `cfn-init` tool is directed 
 
 Each directive can have one or multiple of the following blocks: 
 
-- packages: Install software packages.
-- groups: Create/manage user groups.
-- users: Create/manage users and assign them to groups.
-- sources: Download and extract files from URLs.
-- files: Create or modify files.
-- commands: Execute arbitrary shell commands.
-- services: Manage services (e.g., start, stop, enable, restart).
-- volumes: Format and mount block storage devices.
-- mounts: Mount filesystems.
-- metadata_options: Configure instance metadata options.
-- sysctl: Set kernel parameters.
+- `packages`: Install software packages.
+- `groups`: Create/manage user groups.
+- `users`: Create/manage users and assign them to groups.
+- `sources`: Download and extract files from URLs.
+- `files`: Create or modify files.
+- `commands`: Execute arbitrary shell commands.
+- `services`: Manage services (e.g., start, stop, enable, restart).
+- `volumes`: Format and mount block storage devices.
+- `mounts`: Mount filesystems.
+- `metadata_options`: Configure instance metadata options.
+- `sysctl`: Set kernel parameters.
 
 Ex:
 ```
