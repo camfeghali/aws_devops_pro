@@ -59,7 +59,7 @@ Billing is volume-based.
 - Redshift
 - Elasticsearch
 
-### Muts knows
+### Must knows
 
 Data sources can be either a Kinesis Data Stream, or data producers can push data to firehose directly.
 Firehose buffers data for 60 seconds, or 1 MB of data before delivering it to a destination. Which is what makes it near real-time.
